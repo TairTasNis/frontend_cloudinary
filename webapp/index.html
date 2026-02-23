@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Cloud Storage</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwindcss.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['-apple-system', 'SF Pro Display', 'Helvetica Neue', 'Arial', 'sans-serif'] },
+          colors: {
+            surface: { 1: '#1c1c1e', 2: '#2c2c2e', 3: '#3a3a3c' },
+            accent: '#0a84ff',
+            'accent-hover': '#409cff',
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Firebase (compat v9) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      overscroll-behavior-y: contain;
+    }
+
+    ::-webkit-scrollbar {
+      width: 0;
+    }
+
+    /* Shimmer loading effect */
+    @keyframes shimmer {
+      0% {
+        background-position: -400px 0;
+      }
+
+      100% {
+        background-position: 400px 0;
+      }
+    }
+
+    .skeleton {
+      background: linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%);
+      background-size: 800px 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 12px;
+    }
+
+    /* Chip active state */
+    .chip-active {
+      background-color: #0a84ff;
+      color: #fff;
+    }
+
+    .chip-inactive {
+      background-color: #2c2c2e;
+      color: #98989e;
+    }
+
+    .chip-inactive:hover {
+      background-color: #3a3a3c;
+    }
+
+    /* Card press effect */
+    .file-card {
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .file-card:active {
+      transform: scale(0.97);
+    }
+
+    /* Button glow */
+    .btn-get {
+      transition: all 0.2s ease;
+    }
+
+    .btn-get:hover {
+      box-shadow: 0 0 16px rgba(10, 132, 255, 0.4);
+    }
+
+    /* Fade in */
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .fade-up {
+      animation: fadeUp 0.35s ease forwards;
+    }
+  </style>
+</head>
+
+<body class="bg-surface-1 text-white min-h-screen font-sans pb-8">
+
+  <!-- Header -->
+  <header class="sticky top-0 z-30 bg-surface-1/80 backdrop-blur-xl border-b border-white/5 px-4 pt-3 pb-3">
+    <h1 class="text-[22px] font-bold tracking-tight mb-3">☁️ Cloud Storage</h1>
+
+    <!-- Search bar -->
+    <div class="relative">
+      <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#98989e]" fill="none" stroke="currentColor"
+        stroke-width="2" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.35-4.35" />
+      </svg>
+      <input id="searchInput" type="text" placeholder="Search files…"
+        class="w-full bg-surface-2 rounded-xl pl-10 pr-4 py-2.5 text-[15px] text-white placeholder-[#636366] outline-none focus:ring-2 focus:ring-accent/50 transition" />
+    </div>
+
+    <!-- Category chips -->
+    <div class="flex gap-2 mt-3 overflow-x-auto no-scrollbar">
+      <button class="chip chip-active  whitespace-nowrap rounded-full px-4 py-1.5 text-[13px] font-semibold transition"
+        data-category="all">All</button>
+      <button class="chip chip-inactive whitespace-nowrap rounded-full px-4 py-1.5 text-[13px] font-semibold transition"
+        data-category="image">🖼 Images</button>
+      <button class="chip chip-inactive whitespace-nowrap rounded-full px-4 py-1.5 text-[13px] font-semibold transition"
+        data-category="document">📄 Documents</button>
+      <button class="chip chip-inactive whitespace-nowrap rounded-full px-4 py-1.5 text-[13px] font-semibold transition"
+        data-category="media">🎬 Media</button>
+    </div>
+  </header>
+
+  <!-- File count -->
+  <div class="px-4 pt-3 pb-1">
+    <p id="fileCount" class="text-[13px] text-[#636366]">Loading…</p>
+  </div>
+
+  <!-- File list -->
+  <main id="fileList" class="px-4 space-y-2.5">
+    <!-- skeleton placeholders -->
+    <div class="skeleton h-[72px]"></div>
+    <div class="skeleton h-[72px]"></div>
+    <div class="skeleton h-[72px]"></div>
+  </main>
+
+  <!-- Empty state -->
+  <div id="emptyState" class="hidden flex-col items-center justify-center mt-20 px-4 text-center">
+    <div class="text-5xl mb-4">📂</div>
+    <p class="text-[17px] font-semibold text-[#98989e]">No files yet</p>
+    <p class="text-[13px] text-[#636366] mt-1">Send a file to the bot chat to get started.</p>
+  </div>
+
+  <script>
+    // ─── Firebase Config ────────────────────────────────────────────────
+    // TODO: Replace with your own Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyC_aJfLPojV8pAfMUpI2mzFpKGBswNV92Y",
+      authDomain: "tfgcloudinary.firebaseapp.com",
+      projectId: "tfgcloudinary",
+      storageBucket: "tfgcloudinary.firebasestorage.app",
+      messagingSenderId: "642988930054",
+      appId: "1:642988930054:web:62d7a7fb596891dfe77f87",
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ─── Telegram WebApp ────────────────────────────────────────────────
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+    }
+
+    // Get user chat_id from Telegram initData
+    const chatId = tg?.initDataUnsafe?.user?.id?.toString() || null;
+
+    // ─── State ──────────────────────────────────────────────────────────
+    let allFiles = [];
+    let activeCategory = "all";
+
+    const fileList = document.getElementById("fileList");
+    const fileCount = document.getElementById("fileCount");
+    const emptyState = document.getElementById("emptyState");
+    const searchInput = document.getElementById("searchInput");
+
+    // ─── Icons ──────────────────────────────────────────────────────────
+    function getFileIcon(category, mimeType) {
+      if (category === "image") return "🖼";
+      if (category === "media") {
+        if (mimeType && mimeType.startsWith("audio")) return "🎵";
+        return "🎬";
+      }
+      return "📄";
+    }
+
+    // ─── Format size ───────────────────────────────────────────────────
+    function formatSize(bytes) {
+      if (!bytes) return "—";
+      const units = ["B", "KB", "MB", "GB"];
+      let i = 0;
+      let size = bytes;
+      while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+      return size.toFixed(1) + " " + units[i];
+    }
+
+    // ─── Render ─────────────────────────────────────────────────────────
+    function render() {
+      const query = searchInput.value.toLowerCase().trim();
+
+      const filtered = allFiles.filter(f => {
+        const matchCategory = activeCategory === "all" || f.category === activeCategory;
+        const matchSearch = !query || (f.file_name || "").toLowerCase().includes(query);
+        return matchCategory && matchSearch;
+      });
+
+      fileCount.textContent = `${filtered.length} file${filtered.length !== 1 ? "s" : ""}`;
+
+      if (filtered.length === 0) {
+        fileList.innerHTML = "";
+        emptyState.classList.remove("hidden");
+        emptyState.classList.add("flex");
+        return;
+      }
+
+      emptyState.classList.add("hidden");
+      emptyState.classList.remove("flex");
+
+      fileList.innerHTML = filtered.map((f, i) => `
+      <div class="file-card fade-up bg-surface-2 rounded-2xl p-3.5 flex items-center gap-3.5" style="animation-delay:${i * 40}ms">
+        <div class="w-11 h-11 rounded-xl bg-surface-3 flex items-center justify-center text-xl shrink-0">
+          ${getFileIcon(f.category, f.mime_type)}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-[15px] font-medium truncate">${escapeHTML(f.file_name || "Unnamed")}</p>
+          <p class="text-[12px] text-[#636366] mt-0.5">${formatSize(f.file_size)}  ·  ${(f.category || "file").charAt(0).toUpperCase() + (f.category || "file").slice(1)}</p>
+        </div>
+        <button onclick="getInBot('${f.file_id}')" class="btn-get shrink-0 bg-accent hover:bg-accent-hover text-white text-[13px] font-semibold rounded-xl px-3.5 py-2 active:scale-95 transition">
+          Get in Bot
+        </button>
+      </div>
+    `).join("");
+    }
+
+    function escapeHTML(str) {
+      const el = document.createElement("span");
+      el.textContent = str;
+      return el.innerHTML;
+    }
+
+    // ─── Send file_id back to bot ──────────────────────────────────────
+    function getInBot(fileId) {
+      if (tg) {
+        tg.sendData(fileId);
+      } else {
+        alert("This button works inside Telegram only.");
+      }
+    }
+
+    // ─── Category chips ────────────────────────────────────────────────
+    document.querySelectorAll(".chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        document.querySelectorAll(".chip").forEach(c => {
+          c.classList.remove("chip-active");
+          c.classList.add("chip-inactive");
+        });
+        chip.classList.remove("chip-inactive");
+        chip.classList.add("chip-active");
+        activeCategory = chip.dataset.category;
+        render();
+      });
+    });
+
+    // ─── Search ─────────────────────────────────────────────────────────
+    searchInput.addEventListener("input", render);
+
+    // ─── Firestore real-time listener ──────────────────────────────────
+    function startListening() {
+      if (!chatId) {
+        fileList.innerHTML = "";
+        fileCount.textContent = "0 files";
+        emptyState.querySelector("p:first-of-type").textContent = "Could not identify user";
+        emptyState.querySelector("p:last-of-type").textContent = "Please open this app from the Telegram bot.";
+        emptyState.classList.remove("hidden");
+        emptyState.classList.add("flex");
+        return;
+      }
+
+      db.collection("files")
+        .where("chat_id", "==", chatId)
+        .orderBy("timestamp", "desc")
+        .onSnapshot(snapshot => {
+          allFiles = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          render();
+        }, err => {
+          console.error("Firestore error:", err);
+          fileCount.textContent = "Error loading files";
+        });
+    }
+
+    startListening();
+  </script>
+</body>
+
+</html>
